@@ -1,0 +1,121 @@
+import java.net.*;
+import java.io.*;
+import java.util.*;
+
+public class DNSServer {
+    public static void main(String[] args) throws IOException {
+        DatagramSocket serverSocket = new DatagramSocket(53);
+        byte[] receiveBuffer = new byte[512];
+        while (true) {
+            DatagramPacket receivePacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
+            serverSocket.receive(receivePacket);
+            InetAddress clientAddress = receivePacket.getAddress();
+            int clientPort = receivePacket.getPort();
+            byte[] response = createDNSResponse(receivePacket.getData());
+            DatagramPacket sendPacket = new DatagramPacket(response, response.length, clientAddress, clientPort);
+            serverSocket.send(sendPacket);
+        }
+    }
+
+    private static byte[] createDNSResponse(byte[] request) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
+
+        byte[] transactionID = {request[0], request[1]};
+        dataOutputStream.write(transactionID);
+        dataOutputStream.writeShort(0x8180); 
+        dataOutputStream.writeShort(1); 
+        dataOutputStream.writeShort(1); 
+        dataOutputStream.writeShort(0); 
+        dataOutputStream.writeShort(0);
+
+        int position = 12;
+        while (request[position] != 0) {
+            position++;
+        }
+        position += 5;
+
+        dataOutputStream.write(request, 12, position - 12);
+
+        dataOutputStream.writeShort(0xC00C); 
+        dataOutputStream.writeShort(1); 
+        dataOutputStream.writeShort(1); 
+        dataOutputStream.writeInt(60); 
+        dataOutputStream.writeShort(4);
+
+        String[] ip = {"192", "168", "0", "1"}; 
+        for (String octet : ip) {
+            dataOutputStream.writeByte(Integer.parseInt(octet));
+        }
+
+        return byteArrayOutputStream.toByteArray();
+    }
+}
+
+public class DNSClient {
+    public static void main(String[] args) throws IOException {
+        if (args.length != 2) {
+            System.out.println("Usage: java DNSClient <DNS server IP> <hostname>");
+            return;
+        }
+
+        String dnsServerIp = args[0];
+        String hostname = args[1];
+        DatagramSocket socket = new DatagramSocket();
+        InetAddress dnsServerAddress = InetAddress.getByName(dnsServerIp);
+        byte[] dnsQuery = createDNSQuery(hostname);
+        DatagramPacket requestPacket = new DatagramPacket(dnsQuery, dnsQuery.length, dnsServerAddress, 53);
+        socket.send(requestPacket);
+
+        byte[] responseBuffer = new byte[512];
+        DatagramPacket responsePacket = new DatagramPacket(responseBuffer, responseBuffer.length);
+        socket.receive(responsePacket);
+
+        parseDNSResponse(responseBuffer);
+        socket.close();
+    }
+
+    private static byte[] createDNSQuery(String hostname) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
+        dataOutputStream.writeShort(0x1234);
+        dataOutputStream.writeShort(0x0100);
+        dataOutputStream.writeShort(1);
+        dataOutputStream.writeShort(0);
+        dataOutputStream.writeShort(0);
+        dataOutputStream.writeShort(0);
+        String[] labels = hostname.split("\\.");
+        for (String label : labels) {
+            dataOutputStream.writeByte(label.length());
+            dataOutputStream.writeBytes(label);
+        }
+        dataOutputStream.writeByte(0);
+        dataOutputStream.writeShort(0x0001);
+        dataOutputStream.writeShort(0x0001);
+        return byteArrayOutputStream.toByteArray();
+    }
+
+    private static void parseDNSResponse(byte[] response) {
+        ByteBuffer byteBuffer = ByteBuffer.wrap(response);
+        byteBuffer.getShort();
+        byteBuffer.getShort();
+        byteBuffer.getShort();
+        short ancount = byteBuffer.getShort();
+        byteBuffer.position(byteBuffer.position() + 4);
+        while (byteBuffer.get() != 0);
+        byteBuffer.position(byteBuffer.position() + 4);
+        for (int i = 0; i < ancount; i++) {
+            while (byteBuffer.get() != 0);
+            short type = byteBuffer.getShort();
+            byteBuffer.position(byteBuffer.position() + 8);
+            short rdlength = byteBuffer.getShort();
+            if (type == 0x0001) {
+                byte[] ipAddress = new byte[4];
+                byteBuffer.get(ipAddress);
+                System.out.println("Resolved IP: " + (ipAddress[0] & 0xFF) + "." + (ipAddress[1] & 0xFF) + "." + (ipAddress[2] & 0xFF) + "." + (ipAddress[3] & 0xFF));
+            } else {
+                byteBuffer.position(byteBuffer.position() + rdlength);
+            }
+        }
+    }
+}
