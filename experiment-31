@@ -1,0 +1,76 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/if_ether.h>
+#include <netinet/ip.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <unistd.h>
+
+#define ARP_REQUEST 1
+#define ARP_REPLY 2
+
+struct arp_header {
+    unsigned short hardware_type;
+    unsigned short protocol_type;
+    unsigned char hardware_size;
+    unsigned char protocol_size;
+    unsigned short opcode;
+    unsigned char sender_mac[6];
+    unsigned char sender_ip[4];
+    unsigned char target_mac[6];
+    unsigned char target_ip[4];
+};
+
+void send_arp_request(int sockfd, const char* source_ip, const char* target_ip, unsigned char* sender_mac, const char* interface) {
+    struct sockaddr_ll addr = {0};
+    struct ifreq ifr;
+    struct arp_header arp_req = {0};
+    
+    arp_req.hardware_type = htons(1); 
+    arp_req.protocol_type = htons(ETH_P_IP);
+    arp_req.hardware_size = 6;  
+    arp_req.protocol_size = 4; 
+    arp_req.opcode = htons(ARP_REQUEST);  
+
+    memcpy(arp_req.sender_mac, sender_mac, 6);
+    inet_pton(AF_INET, source_ip, arp_req.sender_ip);
+    inet_pton(AF_INET, target_ip, arp_req.target_ip);
+
+    memset(arp_req.target_mac, 0xff, 6);  
+    if (sendto(sockfd, &arp_req, sizeof(arp_req), 0, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("Failed to send ARP request");
+        exit(1);
+    }
+}
+
+int main(int argc, char** argv) {
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s <interface> <source_ip> <target_ip>\n", argv[0]);
+        exit(1);
+    }
+
+    int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
+    if (sockfd < 0) {
+        perror("Socket creation failed");
+        exit(1);
+    }
+
+    unsigned char sender_mac[6];
+    struct ifreq ifr;
+    strcpy(ifr.ifr_name, argv[1]);
+
+    if (ioctl(sockfd, SIOCGIFHWADDR, &ifr) < 0) {
+        perror("Failed to get MAC address");
+        close(sockfd);
+        exit(1);
+    }
+    memcpy(sender_mac, ifr.ifr_hwaddr.sa_data, 6);
+
+    send_arp_request(sockfd, argv[2], argv[3], sender_mac, argv[1]);
+    close(sockfd);
+
+    return 0;
+}
