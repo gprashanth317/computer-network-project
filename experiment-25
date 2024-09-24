@@ -1,0 +1,33 @@
+import java.net.*;
+import java.io.*;
+import java.util.*;
+
+public class TimeServer {
+    public static void main(String[] args) throws IOException {
+        ServerSocket serverSocket = new ServerSocket(6789);
+        while (true) {
+            Socket connectionSocket = serverSocket.accept();
+            DataOutputStream outToClient = new DataOutputStream(connectionSocket.getOutputStream());
+            String currentTime = new Date().toString();
+            outToClient.writeBytes(currentTime + "\n");
+            connectionSocket.close();
+        }
+    }
+}
+
+import java.net.*;
+import java.io.*;
+
+public class TimeClient {
+    public static void main(String[] args) throws IOException {
+        String serverHostname = "localhost";
+        if (args.length > 0) {
+            serverHostname = args[0];
+        }
+        Socket clientSocket = new Socket(serverHostname, 6789);
+        BufferedReader inFromServer = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+        String serverTime = inFromServer.readLine();
+        System.out.println("Current date and time from server: " + serverTime);
+        clientSocket.close();
+    }
+}
